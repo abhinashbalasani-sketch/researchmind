@@ -1,6 +1,6 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import { useAuth } from '../lib/auth'
-import { Compass, LogOut, Plus, Settings } from 'lucide-react'
+import { Bell, Compass, LogOut, Plus, Settings } from 'lucide-react'
 
 export default function Shell() {
   const { user, logout } = useAuth()
@@ -28,6 +28,14 @@ export default function Shell() {
             }
           >
             <Plus size={16} /> New research
+          </NavLink>
+          <NavLink
+            to="/app/monitors"
+            className={({ isActive }) =>
+              `flex items-center gap-2 rounded-xl px-3 py-2 ${isActive ? 'bg-ink text-gold' : 'text-mist hover:text-paper'}`
+            }
+          >
+            <Bell size={16} /> Paper Monitor
           </NavLink>
           <NavLink
             to="/app/settings"

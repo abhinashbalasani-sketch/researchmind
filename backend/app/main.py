@@ -2,6 +2,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.auth import router as auth_router
+from app.api.monitors import router as monitors_router
+from app.api.public import router as public_router
 from app.api.research import router as research_router
 from app.config import get_settings
 
@@ -17,6 +19,9 @@ app.add_middleware(
 )
 app.include_router(auth_router)
 app.include_router(research_router)
+app.include_router(monitors_router)
+app.include_router(public_router)
+
 
 
 @app.get("/")

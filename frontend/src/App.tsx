@@ -7,6 +7,8 @@ import Dashboard from './pages/Dashboard'
 import NewResearch from './pages/NewResearch'
 import SessionPage from './pages/Session'
 import SettingsPage from './pages/Settings'
+import PaperMonitors from './pages/PaperMonitors'
+import PublicSession from './pages/PublicSession'
 import type { ReactNode } from 'react'
 
 function Guard({ children }: { children: ReactNode }) {
@@ -23,6 +25,7 @@ export default function App() {
         <Route path="/" element={<Landing />} />
         <Route path="/login" element={<AuthPage mode="login" />} />
         <Route path="/register" element={<AuthPage mode="register" />} />
+        <Route path="/share/:token" element={<PublicSession />} />
         <Route
           path="/app"
           element={
@@ -33,6 +36,7 @@ export default function App() {
         >
           <Route index element={<Dashboard />} />
           <Route path="new" element={<NewResearch />} />
+          <Route path="monitors" element={<PaperMonitors />} />
           <Route path="sessions/:id" element={<SessionPage />} />
           <Route path="settings" element={<SettingsPage />} />
         </Route>
@@ -40,3 +44,4 @@ export default function App() {
     </AuthProvider>
   )
 }
+

@@ -132,6 +132,32 @@ class Store:
                     data_json TEXT,
                     created_at TEXT NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS paper_monitors (
+                    id TEXT PRIMARY KEY,
+                    user_id TEXT NOT NULL,
+                    topic TEXT NOT NULL,
+                    frequency TEXT DEFAULT 'daily',
+                    last_checked TEXT,
+                    new_papers_json TEXT DEFAULT '[]',
+                    created_at TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS session_shares (
+                    id TEXT PRIMARY KEY,
+                    session_id TEXT NOT NULL UNIQUE,
+                    token TEXT NOT NULL UNIQUE,
+                    created_at TEXT NOT NULL,
+                    view_count INTEGER DEFAULT 0
+                );
+                CREATE TABLE IF NOT EXISTS citation_edges (
+                    id TEXT PRIMARY KEY,
+                    session_id TEXT NOT NULL,
+                    source_paper_title TEXT NOT NULL,
+                    target_paper_title TEXT NOT NULL,
+                    target_doi TEXT,
+                    target_url TEXT,
+                    relation TEXT DEFAULT 'cites',
+                    created_at TEXT NOT NULL
+                );
                 """
             )
 
@@ -443,6 +469,123 @@ class Store:
             out.append(d)
         return out
 
+    # Paper Monitors
+    def create_paper_monitor(self, user_id: str, topic: str, frequency: str = "daily") -> dict:
+        mid = _uid()
+        now = _now()
+        rec = {
+            "id": mid,
+            "user_id": user_id,
+            "topic": topic.strip(),
+            "frequency": frequency,
+            "last_checked": None,
+            "new_papers": [],
+            "created_at": now,
+        }
+        with self.connect() as conn:
+            conn.execute(
+                """INSERT INTO paper_monitors (id, user_id, topic, frequency, last_checked, new_papers_json, created_at)
+                   VALUES (?,?,?,?,?,?,?)""",
+                (mid, user_id, rec["topic"], frequency, None, "[]", now),
+            )
+        return rec
+
+    def list_paper_monitors(self, user_id: str) -> list[dict]:
+        with self.connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM paper_monitors WHERE user_id = ? ORDER BY created_at DESC",
+                (user_id,),
+            ).fetchall()
+        out = []
+        for r in rows:
+            d = dict(r)
+            d["new_papers"] = json.loads(d.pop("new_papers_json") or "[]")
+            out.append(d)
+        return out
+
+    def get_paper_monitor(self, monitor_id: str) -> dict | None:
+        with self.connect() as conn:
+            row = conn.execute("SELECT * FROM paper_monitors WHERE id = ?", (monitor_id,)).fetchone()
+        if not row:
+            return None
+        d = dict(row)
+        d["new_papers"] = json.loads(d.pop("new_papers_json") or "[]")
+        return d
+
+    def update_paper_monitor(self, monitor_id: str, **fields: Any) -> None:
+        if "new_papers" in fields:
+            fields["new_papers_json"] = json.dumps(fields.pop("new_papers"))
+        keys = list(fields.keys())
+        with self.connect() as conn:
+            conn.execute(
+                f"UPDATE paper_monitors SET {', '.join(k + '=?' for k in keys)} WHERE id = ?",
+                [*[fields[k] for k in keys], monitor_id],
+            )
+
+    def delete_paper_monitor(self, monitor_id: str) -> None:
+        with self.connect() as conn:
+            conn.execute("DELETE FROM paper_monitors WHERE id = ?", (monitor_id,))
+
+    # Session Sharing (Public Read-Only)
+    def create_or_get_share_token(self, session_id: str) -> str:
+        with self.connect() as conn:
+            row = conn.execute("SELECT token FROM session_shares WHERE session_id = ?", (session_id,)).fetchone()
+            if row:
+                return row["token"]
+            token = uuid.uuid4().hex[:12]
+            conn.execute(
+                "INSERT INTO session_shares (id, session_id, token, created_at, view_count) VALUES (?,?,?,?,?)",
+                (_uid(), session_id, token, _now(), 0),
+            )
+            return token
+
+    def get_session_by_share_token(self, token: str) -> dict | None:
+        with self.connect() as conn:
+            row = conn.execute("SELECT session_id FROM session_shares WHERE token = ?", (token,)).fetchone()
+            if not row:
+                return None
+            session_id = row["session_id"]
+            conn.execute("UPDATE session_shares SET view_count = view_count + 1 WHERE token = ?", (token,))
+            sess = conn.execute("SELECT * FROM sessions WHERE id = ?", (session_id,)).fetchone()
+            if not sess:
+                return None
+            d = dict(sess)
+            for k in ("plan_json", "result_json"):
+                if d.get(k):
+                    try:
+                        d[k] = json.loads(d[k])
+                    except Exception:
+                        pass
+            return d
+
+    # Citation Graph
+    def add_citation_edges(self, session_id: str, edges: list[dict]) -> None:
+        now = _now()
+        with self.connect() as conn:
+            for e in edges:
+                conn.execute(
+                    """INSERT INTO citation_edges (id, session_id, source_paper_title, target_paper_title, target_doi, target_url, relation, created_at)
+                       VALUES (?,?,?,?,?,?,?,?)""",
+                    (
+                        _uid(),
+                        session_id,
+                        e.get("source_paper_title", ""),
+                        e.get("target_paper_title", ""),
+                        e.get("target_doi"),
+                        e.get("target_url"),
+                        e.get("relation", "cites"),
+                        now,
+                    ),
+                )
+
+    def list_citation_edges(self, session_id: str) -> list[dict]:
+        with self.connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM citation_edges WHERE session_id = ? ORDER BY created_at ASC",
+                (session_id,),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
     def _sb_upsert(self, table: str, row: dict) -> None:
         if not self.supabase:
             return
@@ -450,4 +593,5 @@ class Store:
             self.supabase.table(table).upsert(row).execute()
         except Exception:
             pass
+
 

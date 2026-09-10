@@ -5,8 +5,10 @@ from typing import Awaitable, Callable
 
 from app.agents.academic_research import AcademicResearchAgent
 from app.agents.analysis import AnalysisAgent
+from app.agents.citation_traversal import CitationTraversalAgent
 from app.agents.comparison import ComparisonAgent
 from app.agents.contradictions import ContradictionAgent
+from app.agents.critic import CriticAgent
 from app.agents.extraction import ExtractionAgent
 from app.agents.gaps import GapDetectionAgent
 from app.agents.planner import ResearchPlannerAgent
@@ -38,6 +40,14 @@ class Orchestrator:
         ranked = await agent(SourceDiscoveryAgent).run(web + academic, plan)
         ranked = ranked[: self.store.settings.max_sources]
 
+        # Multi-Hop Citation Traversal
+        citation_edges, foundational_papers = await agent(CitationTraversalAgent).run(session_id, ranked)
+        if foundational_papers:
+            # Register newly discovered foundational papers as sources
+            for fp in foundational_papers[:4]:
+                if not any(s.get("url") == fp.get("url") for s in ranked):
+                    ranked.append(fp)
+
         evidence = await agent(ExtractionAgent).run(session_id, ranked, self.store.settings.embedding_dim)
         verification = await agent(VerificationAgent).run(ranked, evidence)
         analysis = await agent(AnalysisAgent).run(query, evidence)
@@ -45,6 +55,10 @@ class Orchestrator:
         gaps = await agent(GapDetectionAgent).run(query, plan, analysis, evidence)
         contradictions = await agent(ContradictionAgent).run(query, evidence, comparison)
         synthesis = await agent(SynthesizerAgent).run(query, analysis, gaps, contradictions, evidence)
+
+        # Adversarial Critic Peer-Review
+        critic_review = await agent(CriticAgent).run(query, synthesis, evidence, ranked)
+
         markdown = await agent(ReportGeneratorAgent).run(
             query, plan, synthesis, gaps, contradictions, verification
         )
@@ -57,6 +71,8 @@ class Orchestrator:
             ("gaps", gaps),
             ("contradictions", contradictions),
             ("synthesis", synthesis),
+            ("critic", critic_review),
+            ("citation_edges", citation_edges),
         ]:
             self.store.add_finding(session_id, kind, payload)
 
@@ -71,6 +87,8 @@ class Orchestrator:
             "gaps": gaps,
             "contradictions": contradictions,
             "synthesis": synthesis,
+            "critic": critic_review,
+            "citation_edge_count": len(citation_edges),
             "report_id": report_id,
             "llm": self.llm.name,
         }
@@ -79,3 +97,4 @@ class Orchestrator:
         )
         await emit({"agent": "orchestrator", "title": "Orchestrator", "kind": "complete", "message": "Pipeline finished."})
         return result
+

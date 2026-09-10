@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
+from pathlib import Path
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
-from fastapi.responses import StreamingResponse
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from fastapi.responses import FileResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field
 
 from app.agents.orchestrator import Orchestrator
@@ -13,6 +15,9 @@ from app.db.store import Store
 from app.deps import get_current_user, get_llm, get_store
 from app.embeddings.local import chunk_text, embed_text
 from app.rag.qa import rag_answer
+from app.tools.audio import generate_audio_file
+from app.tools.crawler import crawl_research_site
+from app.tools.export import generate_bibtex, generate_markdown, generate_pdf
 from app.tools.pdf import extract_pdf_bytes
 
 router = APIRouter(prefix="/api", tags=["research"])
@@ -36,6 +41,16 @@ class ChatIn(BaseModel):
 class PrefIn(BaseModel):
     voice_enabled: bool = True
     llm_preference: str = "auto"
+
+
+class AudioIn(BaseModel):
+    voice: str = "en-US-ChristopherNeural"
+    mode: str = "solo"
+
+
+class CrawlIn(BaseModel):
+    url: str = Field(min_length=5)
+    max_pages: int = 6
 
 
 @router.get("/health")
@@ -81,6 +96,25 @@ def get_session(session_id: str, user: Annotated[dict, Depends(get_current_user)
     if not sess or sess["user_id"] != user["id"]:
         raise HTTPException(404, "Session not found")
     report = store.get_report(session_id)
+    citation_edges = store.list_citation_edges(session_id)
+
+    # Check for critic review in findings
+    critic = None
+    with store.connect() as conn:
+        row = conn.execute(
+            "SELECT payload_json FROM findings WHERE session_id = ? AND kind = 'critic' ORDER BY rowid DESC LIMIT 1",
+            (session_id,),
+        ).fetchone()
+        if row and row["payload_json"]:
+            try:
+                critic = json.loads(row["payload_json"])
+            except Exception:
+                pass
+
+    # Check if neural audio exists on disk
+    audio_path = Path(f"data/audio/{session_id}.mp3")
+    has_audio = audio_path.exists()
+
     return {
         "session": sess,
         "sources": store.list_sources(session_id),
@@ -88,7 +122,11 @@ def get_session(session_id: str, user: Annotated[dict, Depends(get_current_user)
         "report": report,
         "chat": store.list_chat(session_id),
         "events": store.list_events(session_id),
+        "citation_edges": citation_edges,
+        "critic": critic,
+        "has_audio": has_audio,
     }
+
 
 
 @router.post("/research")
@@ -259,5 +297,134 @@ async def upload_pdf(
     return {"source_id": src_id, "chunks": n, "chars": len(text)}
 
 
+@router.get("/sessions/{session_id}/export")
+def export_session(
+    session_id: str,
+    user: Annotated[dict, Depends(get_current_user)],
+    store: Annotated[Store, Depends(get_store)],
+    format: str = Query("pdf", pattern="^(pdf|bibtex|markdown)$"),
+):
+    sess = store.get_session(session_id)
+    if not sess or sess["user_id"] != user["id"]:
+        raise HTTPException(404, "Session not found")
+
+    report = store.get_report(session_id)
+    sources = store.list_sources(session_id)
+    clean_title = (sess.get("query", "report")[:30]).replace(" ", "_").lower()
+
+    if format == "bibtex":
+        content = generate_bibtex(sources)
+        return Response(
+            content=content,
+            media_type="text/plain",
+            headers={"Content-Disposition": f'attachment; filename="researchmind_{clean_title}.bib"'},
+        )
+    elif format == "markdown":
+        content = generate_markdown(sess, report, sources)
+        return Response(
+            content=content,
+            media_type="text/markdown",
+            headers={"Content-Disposition": f'attachment; filename="researchmind_{clean_title}.md"'},
+        )
+    else:  # pdf
+        pdf_bytes = generate_pdf(sess, report, sources)
+        return Response(
+            content=pdf_bytes,
+            media_type="application/pdf",
+            headers={"Content-Disposition": f'attachment; filename="researchmind_{clean_title}.pdf"'},
+        )
+
+
+@router.post("/sessions/{session_id}/audio")
+async def create_audio_briefing(
+    session_id: str,
+    body: AudioIn,
+    user: Annotated[dict, Depends(get_current_user)],
+    store: Annotated[Store, Depends(get_store)],
+):
+    sess = store.get_session(session_id)
+    if not sess or sess["user_id"] != user["id"]:
+        raise HTTPException(404, "Session not found")
+
+    report = store.get_report(session_id)
+    if not report or not report.get("voice_script"):
+        raise HTTPException(400, "No voice script available for this session.")
+
+    audio_dir = Path("data/audio")
+    audio_dir.mkdir(parents=True, exist_ok=True)
+    audio_path = audio_dir / f"{session_id}.mp3"
+
+    try:
+        await generate_audio_file(report["voice_script"], str(audio_path), voice=body.voice, mode=body.mode)
+    except Exception as exc:
+        raise HTTPException(500, f"Neural audio generation failed: {exc}") from exc
+
+    return {"ok": True, "audio_url": f"/api/sessions/{session_id}/audio"}
+
+
+@router.get("/sessions/{session_id}/audio")
+def get_audio_briefing(
+    session_id: str,
+    store: Annotated[Store, Depends(get_store)],
+):
+    audio_path = Path(f"data/audio/{session_id}.mp3")
+    if not audio_path.exists():
+        raise HTTPException(404, "Audio file not found. Generate it first.")
+    return FileResponse(str(audio_path), media_type="audio/mpeg", filename=f"researchmind-{session_id[:8]}.mp3")
+
+
+@router.post("/sessions/{session_id}/share")
+def share_session(
+    session_id: str,
+    user: Annotated[dict, Depends(get_current_user)],
+    store: Annotated[Store, Depends(get_store)],
+):
+    sess = store.get_session(session_id)
+    if not sess or sess["user_id"] != user["id"]:
+        raise HTTPException(404, "Session not found")
+
+    token = store.create_or_get_share_token(session_id)
+    return {"token": token, "share_url": f"/share/{token}"}
+
+
+@router.post("/sessions/{session_id}/crawl")
+async def crawl_site(
+    session_id: str,
+    body: CrawlIn,
+    user: Annotated[dict, Depends(get_current_user)],
+    store: Annotated[Store, Depends(get_store)],
+):
+    sess = store.get_session(session_id)
+    if not sess or sess["user_id"] != user["id"]:
+        raise HTTPException(404, "Session not found")
+
+    discovered = await crawl_research_site(body.url, max_pages=body.max_pages)
+    if not discovered:
+        raise HTTPException(400, "No readable research articles or papers found at the provided URL.")
+
+    dim = store.settings.embedding_dim
+    added_sources = 0
+
+    for s in discovered:
+        src_id = store.add_source(session_id, s)
+        added_sources += 1
+        snippet = s.get("snippet", "")
+        if len(snippet) > 50:
+            store.add_embedding(session_id, snippet, embed_text(snippet, dim), src_id)
+            store.add_evidence(session_id, src_id, f"Crawled from {s.get('venue')}", snippet[:800], embed_text(snippet[:1000], dim))
+
+    # Also log an event to session timeline
+    store.add_event(session_id, {
+        "agent": "crawler",
+        "title": "Research Crawler",
+        "kind": "complete",
+        "tool": "web_crawler",
+        "message": f"Crawled {body.url} and ingested {added_sources} documents.",
+    })
+
+    return {"crawled_url": body.url, "sources_added": added_sources}
+
+
 def _sse(obj: dict) -> str:
     return f"data: {json.dumps(obj, ensure_ascii=False)}\n\n"
+
