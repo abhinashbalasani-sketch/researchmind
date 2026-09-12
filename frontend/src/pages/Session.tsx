@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { useParams } from 'react-router-dom'
-import { api, getToken } from '../lib/api'
+import { api, getToken, API_BASE } from '../lib/api'
 import { renderMarkdown } from '../lib/markdown'
 import {
   AlertCircle,
@@ -125,7 +125,7 @@ export default function SessionPage() {
       const d = await api<SessionPayload>(`/api/sessions/${id}`)
       setData(d)
       if (d.has_audio) {
-        setAudioUrl(`/api/sessions/${id}/audio?t=${Date.now()}`)
+        setAudioUrl(`${API_BASE}/api/sessions/${id}/audio?t=${Date.now()}`)
       }
       if (d.events && d.events.length > 0) {
         setEvents((prev) => {
@@ -158,7 +158,7 @@ export default function SessionPage() {
     if (!id) return
     let active = true
     const token = getToken()
-    const es = new EventSource(`/api/research/${id}/stream?token=${encodeURIComponent(token || '')}`)
+    const es = new EventSource(`${API_BASE}/api/research/${id}/stream?token=${encodeURIComponent(token || '')}`)
 
     es.onmessage = (m) => {
       if (!active) return
@@ -205,7 +205,7 @@ export default function SessionPage() {
         method: 'POST',
         body: JSON.stringify({ voice: voiceChoice, mode: audioMode }),
       })
-      setAudioUrl(`/api/sessions/${id}/audio?t=${Date.now()}`)
+      setAudioUrl(`${API_BASE}/api/sessions/${id}/audio?t=${Date.now()}`)
     } catch (e) {
       alert(e instanceof Error ? e.message : 'Audio generation failed')
     } finally {
@@ -358,7 +358,7 @@ export default function SessionPage() {
             {showExportMenu && (
               <div className="absolute right-0 mt-2 w-48 rounded-xl border border-line bg-panel p-1.5 shadow-xl z-20 space-y-1">
                 <a
-                  href={`/api/sessions/${id}/export?format=pdf`}
+                  href={`${API_BASE}/api/sessions/${id}/export?format=pdf`}
                   download
                   onClick={() => setShowExportMenu(false)}
                   className="flex items-center gap-2 rounded-lg px-3 py-2 text-xs text-paper hover:bg-ink hover:text-gold"
@@ -366,7 +366,7 @@ export default function SessionPage() {
                   <FileDown size={14} /> Academic PDF
                 </a>
                 <a
-                  href={`/api/sessions/${id}/export?format=bibtex`}
+                  href={`${API_BASE}/api/sessions/${id}/export?format=bibtex`}
                   download
                   onClick={() => setShowExportMenu(false)}
                   className="flex items-center gap-2 rounded-lg px-3 py-2 text-xs text-paper hover:bg-ink hover:text-gold"
@@ -374,7 +374,7 @@ export default function SessionPage() {
                   <FileDown size={14} /> BibTeX (.bib)
                 </a>
                 <a
-                  href={`/api/sessions/${id}/export?format=markdown`}
+                  href={`${API_BASE}/api/sessions/${id}/export?format=markdown`}
                   download
                   onClick={() => setShowExportMenu(false)}
                   className="flex items-center gap-2 rounded-lg px-3 py-2 text-xs text-paper hover:bg-ink hover:text-gold"

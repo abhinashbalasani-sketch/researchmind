@@ -1,5 +1,9 @@
 const TOKEN = 'rm_token'
 
+// In production (Vercel), VITE_API_URL points to the Railway backend.
+// In development, the Vite proxy handles /api → localhost:8000.
+export const API_BASE = import.meta.env.VITE_API_URL ?? ''
+
 export function getToken(): string | null {
   return localStorage.getItem(TOKEN)
 }
@@ -19,7 +23,8 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   }
   const token = getToken()
   if (token) headers.set('Authorization', `Bearer ${token}`)
-  const res = await fetch(path, { ...init, headers })
+  const url = `${API_BASE}${path}`
+  const res = await fetch(url, { ...init, headers })
   if (!res.ok) {
     let detail = res.statusText
     try {
@@ -31,4 +36,9 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
     throw new Error(typeof detail === 'string' ? detail : 'Request failed')
   }
   return res.json() as Promise<T>
+}
+
+// Helper for SSE streams — respects API_BASE
+export function apiStreamUrl(path: string): string {
+  return `${API_BASE}${path}`
 }

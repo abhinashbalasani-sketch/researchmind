@@ -1,11 +1,31 @@
+# Python
 .venv/
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
+
+# Environment & Secrets
 .env
+.env.*
+!.env.example
+backend/.env
+frontend/.env.local
+
+# Databases & data
 data/
+backend/data/
 *.db
+*.sqlite
+*.sqlite3
+
+# Node / Frontend
 node_modules/
 dist/
-.DS_Store
 frontend/dist/
-backend/data/
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
+import { API_BASE } from '../lib/api'
 import { renderMarkdown } from '../lib/markdown'
 import { CheckCircle2, Compass, ExternalLink, Network, ShieldCheck, Sparkles, X } from 'lucide-react'
 
@@ -56,7 +57,7 @@ export default function PublicSession() {
 
   useEffect(() => {
     if (!token) return
-    fetch(`/api/public/sessions/${token}`)
+    fetch(`${API_BASE}/api/public/sessions/${token}`)
       .then(async (res) => {
         if (!res.ok) throw new Error('Shared session not found or link has expired')
         return res.json() as Promise<PublicData>
