@@ -10,11 +10,11 @@ from app.config import get_settings
 settings = get_settings()
 
 app = FastAPI(title="ResearchMind API", version="1.0.0")
-cors_list = [o.strip() for o in settings.cors_origins.split(",") if o.strip()]
+cors_list = [o.strip() for o in settings.cors_origins.split(",") if o.strip() and o.strip() != "*"]
 app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_list,
-    allow_origin_regex=r"^https://.*\.vercel\.app$",
+    allow_origin_regex=r"^https?://.*$",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

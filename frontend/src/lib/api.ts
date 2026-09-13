@@ -1,10 +1,10 @@
 const TOKEN = 'rm_token'
 
-// In production, use VITE_API_URL or the deployed Railway backend.
+// In production, use VITE_API_URL or the deployed Render backend.
 // In local development, leave empty so Vite proxies /api to localhost:8000.
 export const API_BASE =
   import.meta.env.VITE_API_URL ||
-  (import.meta.env.PROD ? 'https://researchmind-production-cdf7.up.railway.app' : '')
+  (import.meta.env.PROD ? 'https://researchmind-backend-id5f.onrender.com' : '')
 
 export function getToken(): string | null {
   return localStorage.getItem(TOKEN)
