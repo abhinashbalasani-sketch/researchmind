@@ -1,8 +1,10 @@
 const TOKEN = 'rm_token'
 
-// In production (Vercel), VITE_API_URL points to the Railway backend.
-// In development, the Vite proxy handles /api → localhost:8000.
-export const API_BASE = import.meta.env.VITE_API_URL ?? ''
+// In production, use VITE_API_URL or the deployed Railway backend.
+// In local development, leave empty so Vite proxies /api to localhost:8000.
+export const API_BASE =
+  import.meta.env.VITE_API_URL ||
+  (import.meta.env.PROD ? 'https://researchmind-production-cdf7.up.railway.app' : '')
 
 export function getToken(): string | null {
   return localStorage.getItem(TOKEN)
